@@ -22,6 +22,22 @@ services:
 
     restart: unless-stopped
 
+  pos-stock-client:
+    container_name: pos-stock-client
+
+    build:
+      context: .
+      dockerfile: src/Pos.Stock.Client/Dockerfile
+
+    ports:
+      - "5080:80"
+
+    environment:
+      # The browser calls the API, so this must be the host-facing URL, not the compose service name.
+      API_BASE_URL: "http://localhost:8082/"
+
+    restart: unless-stopped
+
   postgres:
     container_name: pos-stock-postgres
 
