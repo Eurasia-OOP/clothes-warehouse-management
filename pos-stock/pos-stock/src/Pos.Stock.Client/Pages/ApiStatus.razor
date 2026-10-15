@@ -1,0 +1,65 @@
+@page "/api-status"
+@using System.Net
+@inject ApiClient Api
+@inject HttpClient Http
+
+<PageTitle>API status</PageTitle>
+
+<h1>API status</h1>
+
+<p>API base address: <code>@Http.BaseAddress</code></p>
+
+<p>
+    <button class="btn btn-primary" @onclick="CheckAsync" disabled="@isChecking">Check again</button>
+</p>
+
+@if (isChecking)
+{
+    <p><em>Checking...</em></p>
+}
+else if (message is not null)
+{
+    <div class="alert @alertClass" role="status">@message</div>
+}
+
+@code {
+    private bool isChecking;
+    private string? message;
+    private string alertClass = "alert-secondary";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CheckAsync();
+    }
+
+    private async Task CheckAsync()
+    {
+        isChecking = true;
+        message = null;
+
+        try
+        {
+            var status = await Api.GetHealthAsync();
+
+            if (status == HttpStatusCode.OK)
+            {
+                alertClass = "alert-success";
+                message = "API is healthy (HTTP 200).";
+            }
+            else
+            {
+                alertClass = "alert-warning";
+                message = $"API responded with HTTP {(int)status} ({status}), expected HTTP 200.";
+            }
+        }
+        catch (HttpRequestException)
+        {
+            alertClass = "alert-danger";
+            message = $"API is not reachable at {Http.BaseAddress}. Start the API and allow this origin in its CORS policy.";
+        }
+        finally
+        {
+            isChecking = false;
+        }
+    }
+}
