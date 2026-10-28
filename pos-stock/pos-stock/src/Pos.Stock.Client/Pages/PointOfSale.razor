@@ -1,0 +1,226 @@
+@page "/pos"
+@inject ApiClient Api
+
+<PageTitle>Point of sale</PageTitle>
+
+<h1>Point of sale</h1>
+
+@if (error is not null)
+{
+    <div class="alert alert-danger" role="alert">@error</div>
+}
+
+@if (lastSale is not null)
+{
+    <div class="alert alert-success" role="status">
+        Sale #@lastSale.Id completed. Total: @lastSale.Total.ToString("N2")
+    </div>
+}
+
+<div class="row g-4">
+    <div class="col-lg-7">
+        <input class="form-control mb-3" placeholder="Search products by name or SKU" @bind="search" @bind:event="oninput" />
+
+        @if (isLoading)
+        {
+            <p><em>Loading...</em></p>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead>
+                        <tr><th>SKU</th><th>Name</th><th class="text-end">Price</th><th class="text-end">In stock</th><th></th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var product in VisibleProducts)
+                        {
+                            <tr>
+                                <td>@product.Sku</td>
+                                <td>@product.Name</td>
+                                <td class="text-end">@product.Price.ToString("N2")</td>
+                                <td class="text-end">@product.StockQuantity</td>
+                                <td class="text-end">
+                                    <button class="btn btn-sm btn-primary" @onclick="() => AddToCart(product)">Add</button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+
+    <div class="col-lg-5">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">Cart</h5>
+
+                @if (cart.Count == 0)
+                {
+                    <p class="text-muted">The cart is empty.</p>
+                }
+                else
+                {
+                    <table class="table table-sm align-middle">
+                        <tbody>
+                            @foreach (var line in cart)
+                            {
+                                <tr>
+                                    <td>@line.Product.Name</td>
+                                    <td class="text-nowrap">
+                                        <button class="btn btn-sm btn-outline-secondary" @onclick="() => Decrease(line)">-</button>
+                                        <span class="mx-2">@line.Quantity</span>
+                                        <button class="btn btn-sm btn-outline-secondary" @onclick="() => Increase(line)">+</button>
+                                    </td>
+                                    <td class="text-end">@((line.Product.Price * line.Quantity).ToString("N2"))</td>
+                                    <td class="text-end">
+                                        <button class="btn btn-sm btn-outline-danger" @onclick="() => Remove(line)">x</button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+
+                    <div class="d-flex justify-content-between fs-5 mb-3">
+                        <strong>Total</strong>
+                        <strong>@Total.ToString("N2")</strong>
+                    </div>
+
+                    <label class="form-label">Payment method</label>
+                    <select class="form-select mb-3" @bind="paymentMethod">
+                        <option value="Cash">Cash</option>
+                        <option value="Card">Card</option>
+                        <option value="Transfer">Transfer</option>
+                    </select>
+
+                    <button class="btn btn-success w-100" @onclick="CheckoutAsync" disabled="@isBusy">Complete sale</button>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private sealed class CartLine
+    {
+        public ProductDto Product { get; set; } = new();
+        public int Quantity { get; set; }
+    }
+
+    private List<ProductDto> products = new();
+    private List<CartLine> cart = new();
+    private string search = string.Empty;
+    private string paymentMethod = "Cash";
+    private string? error;
+    private SaleDto? lastSale;
+    private bool isLoading;
+    private bool isBusy;
+
+    private decimal Total => cart.Sum(l => l.Product.Price * l.Quantity);
+
+    private IEnumerable<ProductDto> VisibleProducts =>
+        products.Where(p => p.IsActive
+            && p.StockQuantity > 0
+            && (string.IsNullOrWhiteSpace(search)
+                || p.Name.Contains(search, StringComparison.OrdinalIgnoreCase)
+                || p.Sku.Contains(search, StringComparison.OrdinalIgnoreCase)));
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadProductsAsync();
+    }
+
+    private async Task LoadProductsAsync()
+    {
+        isLoading = true;
+        var result = await Api.GetProductsAsync();
+
+        if (result.Ok)
+        {
+            products = result.Value;
+        }
+        else
+        {
+            error = result.Error;
+        }
+
+        isLoading = false;
+    }
+
+    private void AddToCart(ProductDto product)
+    {
+        error = null;
+        lastSale = null;
+
+        var line = cart.FirstOrDefault(l => l.Product.Id == product.Id);
+
+        if (line is null)
+        {
+            cart.Add(new CartLine { Product = product, Quantity = 1 });
+        }
+        else if (line.Quantity < product.StockQuantity)
+        {
+            line.Quantity++;
+        }
+    }
+
+    private void Increase(CartLine line)
+    {
+        if (line.Quantity < line.Product.StockQuantity)
+        {
+            line.Quantity++;
+        }
+    }
+
+    private void Decrease(CartLine line)
+    {
+        if (line.Quantity > 1)
+        {
+            line.Quantity--;
+        }
+        else
+        {
+            cart.Remove(line);
+        }
+    }
+
+    private void Remove(CartLine line)
+    {
+        cart.Remove(line);
+    }
+
+    private async Task CheckoutAsync()
+    {
+        if (cart.Count == 0)
+        {
+            return;
+        }
+
+        isBusy = true;
+        error = null;
+
+        var request = new SaleRequest
+        {
+            PaymentMethod = paymentMethod,
+            Items = cart
+                .Select(l => new SaleItemRequest { ProductId = l.Product.Id, Quantity = l.Quantity })
+                .ToList()
+        };
+
+        var result = await Api.CreateSaleAsync(request);
+
+        if (result.Ok)
+        {
+            lastSale = result.Value;
+            cart.Clear();
+            await LoadProductsAsync();
+        }
+        else
+        {
+            error = result.Error;
+        }
+
+        isBusy = false;
+    }
+}

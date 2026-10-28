@@ -1,0 +1,271 @@
+@page "/products"
+@inject ApiClient Api
+
+<PageTitle>Products</PageTitle>
+
+<h1>Products</h1>
+
+@if (error is not null)
+{
+    <div class="alert alert-danger" role="alert">@error</div>
+}
+
+@if (info is not null)
+{
+    <div class="alert alert-success" role="status">@info</div>
+}
+
+<div class="row g-2 mb-3">
+    <div class="col-md-6">
+        <div class="input-group">
+            <input class="form-control" placeholder="Search by name or SKU" @bind="search" @bind:event="oninput" @onkeydown="OnSearchKeyAsync" />
+            <button class="btn btn-outline-secondary" @onclick="LoadAsync">Search</button>
+        </div>
+    </div>
+    <div class="col-md-6 text-md-end">
+        <button class="btn btn-primary" @onclick="StartNew">New product</button>
+    </div>
+</div>
+
+@if (showForm)
+{
+    <div class="card mb-3">
+        <div class="card-body">
+            <h5 class="card-title">@(editingId is null ? "New product" : "Edit product")</h5>
+            <div class="row g-2">
+                <div class="col-md-3">
+                    <label class="form-label">SKU</label>
+                    <input class="form-control" @bind="form.Sku" />
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Name</label>
+                    <input class="form-control" @bind="form.Name" />
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Price</label>
+                    <input class="form-control" type="number" step="0.01" min="0" @bind="form.Price" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Reorder level</label>
+                    <input class="form-control" type="number" min="0" @bind="form.ReorderLevel" />
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Category</label>
+                    <select class="form-select" @bind="form.CategoryId">
+                        <option value="">No category</option>
+                        @foreach (var category in categories)
+                        {
+                            <option value="@category.Id">@category.Name</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-4 d-flex align-items-end">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="isActive" @bind="form.IsActive" />
+                        <label class="form-check-label" for="isActive">Active</label>
+                    </div>
+                </div>
+            </div>
+            <div class="form-text mt-2">Stock quantity is changed on the Stock page, not here.</div>
+            <div class="mt-3">
+                <button class="btn btn-primary" @onclick="SaveAsync">Save</button>
+                <button class="btn btn-outline-secondary" @onclick="CancelForm">Cancel</button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (isLoading)
+{
+    <p><em>Loading...</em></p>
+}
+else if (products.Count == 0)
+{
+    <p class="text-muted">No products found.</p>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table table-striped align-middle">
+            <thead>
+                <tr>
+                    <th>SKU</th>
+                    <th>Name</th>
+                    <th>Category</th>
+                    <th class="text-end">Price</th>
+                    <th class="text-end">Stock</th>
+                    <th>Status</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var product in products)
+                {
+                    <tr class="@(product.IsActive && product.StockQuantity <= product.ReorderLevel ? "table-warning" : null)">
+                        <td>@product.Sku</td>
+                        <td>@product.Name</td>
+                        <td>@CategoryName(product.CategoryId)</td>
+                        <td class="text-end">@product.Price.ToString("N2")</td>
+                        <td class="text-end">@product.StockQuantity</td>
+                        <td>
+                            @if (product.IsActive)
+                            {
+                                <span class="badge bg-success">Active</span>
+                            }
+                            else
+                            {
+                                <span class="badge bg-secondary">Inactive</span>
+                            }
+                        </td>
+                        <td class="text-end">
+                            <button class="btn btn-sm btn-outline-primary" @onclick="() => StartEdit(product)">Edit</button>
+                            @if (product.IsActive)
+                            {
+                                <button class="btn btn-sm btn-outline-danger" @onclick="() => DeactivateAsync(product)">Deactivate</button>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+    <p class="text-muted small">Highlighted rows are at or below their reorder level.</p>
+}
+
+@code {
+    private List<ProductDto> products = new();
+    private List<CategoryDto> categories = new();
+    private ProductForm form = new();
+    private int? editingId;
+    private bool showForm;
+    private string search = string.Empty;
+    private string? error;
+    private string? info;
+    private bool isLoading;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var categoriesResult = await Api.GetCategoriesAsync();
+
+        if (categoriesResult.Ok)
+        {
+            categories = categoriesResult.Value;
+        }
+        else
+        {
+            error = categoriesResult.Error;
+        }
+
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        isLoading = true;
+        var result = await Api.GetProductsAsync(search);
+
+        if (result.Ok)
+        {
+            products = result.Value;
+            error = null;
+        }
+        else
+        {
+            error = result.Error;
+        }
+
+        isLoading = false;
+    }
+
+    private async Task OnSearchKeyAsync(KeyboardEventArgs args)
+    {
+        if (args.Key == "Enter")
+        {
+            await LoadAsync();
+        }
+    }
+
+    private string CategoryName(int? categoryId)
+    {
+        if (categoryId is null)
+        {
+            return "-";
+        }
+
+        var category = categories.FirstOrDefault(c => c.Id == categoryId);
+        return category?.Name ?? "-";
+    }
+
+    private void StartNew()
+    {
+        error = null;
+        info = null;
+        editingId = null;
+        form = new ProductForm();
+        showForm = true;
+    }
+
+    private void StartEdit(ProductDto product)
+    {
+        error = null;
+        info = null;
+        editingId = product.Id;
+        form = new ProductForm
+        {
+            Sku = product.Sku,
+            Name = product.Name,
+            Price = product.Price,
+            ReorderLevel = product.ReorderLevel,
+            CategoryId = product.CategoryId,
+            IsActive = product.IsActive
+        };
+        showForm = true;
+    }
+
+    private void CancelForm()
+    {
+        showForm = false;
+        editingId = null;
+    }
+
+    private async Task SaveAsync()
+    {
+        error = null;
+        info = null;
+
+        var isNew = editingId is null;
+
+        var result = editingId is null
+            ? await Api.CreateProductAsync(form)
+            : await Api.UpdateProductAsync(editingId.Value, form);
+
+        if (!result.Ok)
+        {
+            error = result.Error;
+            return;
+        }
+
+        info = isNew ? "Product created." : "Product updated.";
+        showForm = false;
+        editingId = null;
+        form = new ProductForm();
+        await LoadAsync();
+    }
+
+    private async Task DeactivateAsync(ProductDto product)
+    {
+        error = null;
+        info = null;
+
+        var result = await Api.DeactivateProductAsync(product.Id);
+
+        if (!result.Ok)
+        {
+            error = result.Error;
+            return;
+        }
+
+        info = $"Product '{product.Name}' deactivated.";
+        await LoadAsync();
+    }
+}
