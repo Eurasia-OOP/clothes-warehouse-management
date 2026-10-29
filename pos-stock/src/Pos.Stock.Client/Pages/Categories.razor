@@ -1,0 +1,115 @@
+@page "/categories"
+@inject ApiClient Api
+
+<PageTitle>Categories</PageTitle>
+
+<h1>Categories</h1>
+
+@if (error is not null)
+{
+    <div class="alert alert-danger" role="alert">@error</div>
+}
+
+@if (info is not null)
+{
+    <div class="alert alert-success" role="status">@info</div>
+}
+
+<div class="input-group mb-3" style="max-width: 480px;">
+    <input class="form-control" placeholder="New category name" @bind="newName" @bind:event="oninput" />
+    <button class="btn btn-primary" @onclick="AddAsync" disabled="@(string.IsNullOrWhiteSpace(newName))">Add</button>
+</div>
+
+@if (isLoading)
+{
+    <p><em>Loading...</em></p>
+}
+else if (categories.Count == 0)
+{
+    <p class="text-muted">No categories yet.</p>
+}
+else
+{
+    <table class="table table-striped align-middle" style="max-width: 600px;">
+        <thead>
+            <tr><th>ID</th><th>Name</th><th></th></tr>
+        </thead>
+        <tbody>
+            @foreach (var category in categories)
+            {
+                <tr>
+                    <td>@category.Id</td>
+                    <td>@category.Name</td>
+                    <td class="text-end">
+                        <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteAsync(category)">Delete</button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    private List<CategoryDto> categories = new();
+    private string newName = string.Empty;
+    private string? error;
+    private string? info;
+    private bool isLoading;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        isLoading = true;
+        var result = await Api.GetCategoriesAsync();
+
+        if (result.Ok)
+        {
+            categories = result.Value;
+        }
+        else
+        {
+            error = result.Error;
+        }
+
+        isLoading = false;
+    }
+
+    private async Task AddAsync()
+    {
+        error = null;
+        info = null;
+
+        var result = await Api.CreateCategoryAsync(new CategoryForm { Name = newName.Trim() });
+
+        if (!result.Ok)
+        {
+            error = result.Error;
+            return;
+        }
+
+        newName = string.Empty;
+        info = "Category added.";
+        await LoadAsync();
+    }
+
+    private async Task DeleteAsync(CategoryDto category)
+    {
+        error = null;
+        info = null;
+
+        var result = await Api.DeleteCategoryAsync(category.Id);
+
+        if (!result.Ok)
+        {
+            error = result.Error;
+            return;
+        }
+
+        info = $"Category '{category.Name}' deleted. Its products are now without a category.";
+        await LoadAsync();
+    }
+}
